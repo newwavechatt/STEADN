@@ -11,6 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>html,body{margin:0;padding:0;background:#242B31;min-height:100%}</style>
+<!-- your settings, loaded before the app and never touched by a rebuild -->
+<script src="/config.js"></script>
 </head>
 <body>
 
@@ -7580,11 +7582,13 @@ function installSheet() {
 // row level security decides what any request can reach. The service role
 // key is the dangerous one and must never appear here.
 // ===========================================================================
-const SUPA = {
-  url:  'https://jlkjkpaqbgdewwxnxtbe.supabase.co',
-  anon: 'sb_publishable_OFfQN4otZuSr2x77Sacbfg_dFjWV58U',
-  google: false,     // flip to true once the Google provider is set up
-};
+// Settings come from config.js, which sits beside this file and is never
+// overwritten by a rebuild. Editing index.html for configuration was costing
+// the setup every time the app was updated.
+const SUPA = Object.assign(
+  { url:'', anon:'', google:false },
+  (typeof window !== 'undefined' && window.STEADN_CONFIG) || {}
+);
 // The placeholder must not count as configured, or the app tries to sign in
 // with a key that was never filled in and fails in a confusing way.
 const supaReady = () => !!(SUPA.url && SUPA.anon
