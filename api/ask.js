@@ -6,8 +6,31 @@
 // front end is a key you have given away.
 // ===========================================================================
 
-const MODEL = 'claude-sonnet-4-6';
+// Two models. Most homestead questions are recall and judgement, which the
+// smaller one handles well. Weather questions need the search tool, and the
+// search is what actually costs money: a per-search fee plus several thousand
+// tokens of retrieved page content folded into the input.
+const MODEL_FAST = 'claude-haiku-4-5-20251001';
+const MODEL_FULL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 1000;
+
+// Only genuinely live information needs the web. Frost dates, planting
+// windows, spacings and canning times are all computed locally, so a question
+// about any of those must never trigger a search.
+const NEEDS_WEB = /\b(weather|forecast|rain|raining|rainfall|temperature|degrees|freeze|freezing|frost tonight|storm|wind|tonight|tomorrow|this weekend|cold snap|heat wave|drought|humidity)\b/i;
+
+// Diagnosis and anything with a health or safety edge gets the larger model.
+const NEEDS_CARE = /\b(dying|died|dead|wilting|rot|rotting|blight|disease|sick|pest|infest|mold|mould|why|diagnos|spots?|yellow|curl|holes?|safe|botulism|poison|bad|off feed|not eating|limping|bloat|vet|straining|bleeding|prolapse)\b/i;
+
+function route(question) {
+  const q = String(question || '');
+  const web = NEEDS_WEB.test(q);
+  const care = NEEDS_CARE.test(q);
+  return {
+    web,
+    model: (web || care || q.length > 160) ? MODEL_FULL : MODEL_FAST,
+  };
+}
 const MAX_PROMPT = 12000;          // characters, generous for the profile block
 
 // Rate limiting in module scope is per warm instance only. It stops a runaway
@@ -51,13 +74,14 @@ export default async function handler(req, res) {
       return res.status(413).json({ error: { message: 'That question carried too much context.' } });
     }
 
-    // The client does not get to choose the model or the token budget. Those
-    // are cost decisions and they belong on this side of the wire.
+    // The client does not get to choose the model, the token budget, or
+    // whether to search. Those are cost decisions and they belong here.
+    const plan = route(body.question);
     const payload = {
-      model: MODEL,
+      model: plan.model,
       max_tokens: MAX_TOKENS,
       messages: msgs,
-      tools: body.tools ? [{ type: 'web_search_20250305', name: 'web_search' }] : undefined,
+      tools: plan.web ? [{ type: 'web_search_20250305', name: 'web_search' }] : undefined,
     };
 
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -71,6 +95,14 @@ export default async function handler(req, res) {
     });
 
     const data = await r.json();
+
+    // Visible in Vercel's runtime logs, so you can see what the mix actually
+    // is in the wild rather than guessing at it.
+    console.log(JSON.stringify({
+      model: plan.model, web: plan.web,
+      in_chars: size, status: r.status,
+      usage: data && data.usage ? data.usage : null,
+    }));
 
     // TODO once Supabase is wired: record usage against the stead and refuse
     // when the plan quota is spent. The thermometer in the client is a
