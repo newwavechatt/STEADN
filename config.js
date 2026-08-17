@@ -12,5 +12,5 @@ window.STEADN_CONFIG = {
                    // never the secret key, which starts sb_secret_
 
   // Turn on once Google sign in is set up in Supabase and Google Cloud
-  google: false,
+  google: true,
 };
