@@ -946,6 +946,8 @@
   .savechip.synced{border-color:var(--tag-dim);color:var(--tag)}
   .savechip.local{border-color:var(--rule);color:var(--muted);border-style:dashed}
   .savechip.conflict{border-color:var(--twine);color:var(--twine)}
+  .auth-keep{border-left:2px solid var(--tag);padding:8px 0 8px 12px;margin-top:16px;
+    font-family:var(--data);font-size:calc(11px * var(--fs, 1));color:var(--tag);line-height:1.6}
 
 </style>
 
@@ -7570,10 +7572,13 @@ function installSheet() {
 // key is the dangerous one and must never appear here.
 // ===========================================================================
 const SUPA = {
-  url:  '',          // https://xxxxxxxx.supabase.co
-  anon: '',          // the anon public key
+  url:  'https://jlkjkpaqbgdewwxnxtbe.supabase.co',
+  anon: 'sb_publishable_OFfQN4otZuSr2x77Sacbfg_dFjWV58U',
 };
-const supaReady = () => !!(SUPA.url && SUPA.anon);
+// The placeholder must not count as configured, or the app tries to sign in
+// with a key that was never filled in and fails in a confusing way.
+const supaReady = () => !!(SUPA.url && SUPA.anon
+  && SUPA.anon.indexOf('PASTE_') !== 0);
 
 const SESSION_KEY = 'steadn:session';
 let session = null;          // { access_token, refresh_token, expires_at, user }
@@ -7738,6 +7743,7 @@ function authView() {
         This copy has no Supabase project attached, so accounts and syncing are unavailable. Everything still works, it just stays on this one device.
         <button class="btn-ghost" data-act="demoin">Use it on this device</button>
       </div>`:`<div class="auth-alt"><button class="linkbtn" data-act="demoin">Look around without an account</button></div>`}
+      ${(stateWeight(snapshot()) > 1)?`<div class="auth-keep">There is already a garden saved in this browser. Signing in keeps it and copies it to your account.</div>`:''}
       <div class="auth-foot">Signing in keeps your garden on every device you use. Without it, this browser is the only copy.</div>
     </div></div>`;
 }
@@ -8203,7 +8209,11 @@ function mast() {
     <div class="dispbar" role="group" aria-label="Display settings">
       <span class="savechip" id="savechip"></span>
       ${installButton()}
-      ${state.account?`<button class="dbtn" data-act="signout" title="Signed in as ${esc(state.account)}">Sign out</button>`:''}
+      ${state.account
+        ? `<button class="dbtn" data-act="signout" title="Signed in as ${esc(state.account)}">Sign out</button>`
+        : supaReady()
+          ? `<button class="dbtn install" data-act="gosignin" title="Sign in to keep your garden on every device">Sign in</button>`
+          : ''}
       <button class="dbtn ${state.theme==='daylight'?'on':''}" data-theme="1"
         title="Daylight reads better outdoors. A dark screen loses contrast in sun.">${
         state.theme==='daylight'?'Daylight':'Night'}</button>
@@ -9397,6 +9407,12 @@ root.addEventListener('click', e => {
       return;
     }
     case 'backemail': state.auth.step='email'; state.auth.err=null; return render();
+    case 'gosignin': {
+      // step back to the sign in screen without touching anything saved here
+      state.signedIn = false;
+      state.auth = { step:'email', email:'', err:null, busy:false };
+      return render();
+    }
     case 'signout': {
       signOut().then(() => { location.reload(); });
       return;
