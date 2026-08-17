@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SteadN — Privacy</title>
+<style>
+  body{background:#F4F3EE;color:#1A1D20;font:16px/1.65 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    margin:0;padding:38px 20px 70px}
+  main{max-width:660px;margin:0 auto}
+  h1{font-family:'Arial Narrow',Helvetica,sans-serif;text-transform:uppercase;letter-spacing:.14em;font-size:30px;margin:0 0 4px}
+  .sub{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#4F5459;margin-bottom:30px}
+  h2{font-family:'Arial Narrow',Helvetica,sans-serif;text-transform:uppercase;letter-spacing:.12em;
+    font-size:17px;margin:32px 0 8px;border-bottom:1px solid #B9B5A9;padding-bottom:5px}
+  p{margin:0 0 13px} li{margin-bottom:7px}
+  a{color:#46570B}
+  .note{border-left:3px solid #46570B;padding:2px 0 2px 14px;margin:18px 0;color:#3a3f44}
+</style></head><body><main>
+
+<h1>Privacy</h1>
+<div class="sub">SteadN &middot; steadn.com &middot; last updated 17 August 2026</div>
+
+<p>SteadN is a gardening almanac. This page says plainly what it stores, where it goes, and what it never does. If anything here is unclear, write to <a href="mailto:hello@steadn.com">hello@steadn.com</a>.</p>
+
+<h2>What is kept</h2>
+<ul>
+  <li><b>Your email address</b>, if you sign in. It is how the sign in link reaches you and how your garden is matched to you across devices.</li>
+  <li><b>Your garden</b>: growing zone, the first three digits of your postal code, bed layouts, plantings, harvest weights, pantry counts and season notes.</li>
+  <li><b>Questions you ask the advisor</b>, which are sent to Anthropic to be answered.</li>
+</ul>
+
+<h2>What is not kept</h2>
+<ul>
+  <li>No password. Sign in is a one time link, so there is nothing to steal or reuse.</li>
+  <li>No street address and no precise location. The app asks for a postal code to work out frost dates and only the first three digits are stored.</li>
+  <li>No payment details. If billing is added later it will be handled by a payment processor and card numbers will never reach SteadN.</li>
+  <li>No advertising identifiers, no third party trackers, and no analytics that follow you off this site.</li>
+</ul>
+
+<h2>Where it lives</h2>
+<p>Everything is stored twice on purpose. A copy sits in your own browser so the app works with no signal at all. If you sign in, a second copy sits in a database run by Supabase so the same garden appears on your phone and your computer.</p>
+<p>Advisor questions go to Anthropic to be answered and come straight back. They are not stored on our side after the answer is returned.</p>
+
+<div class="note">Row level security in the database means an account can only ever read its own row. This is enforced by the database itself, not by the app, so a bug in the app cannot expose one person's garden to another.</div>
+
+<h2>What is shared with other people</h2>
+<p>Nothing, unless you switch it on. Sharing is off by default. If you do turn it on you choose section by section what a visitor may see, and location is limited to your growing zone or a nearby reference town. Your exact address is never shared at any setting, and neither is your email.</p>
+
+<h2>Getting it back or getting rid of it</h2>
+<ul>
+  <li><b>A copy of your data:</b> email <a href="mailto:hello@steadn.com">hello@steadn.com</a> from your account address.</li>
+  <li><b>Deletion:</b> ask at the same address and the account and everything in it is removed. There is no waiting period and nothing is retained afterwards.</li>
+  <li><b>The local copy:</b> clearing site data for steadn.com in your browser removes it from that device.</li>
+</ul>
+
+<h2>Children</h2>
+<p>SteadN is not directed at children under 13 and does not knowingly collect anything from them.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes in a way that matters, the date at the top changes and anyone with an account is emailed. Quiet edits to a policy page are a bad habit and are not something this project intends to do.</p>
+
+<h2>Contact</h2>
+<p><a href="mailto:hello@steadn.com">hello@steadn.com</a></p>
+
+</main></body></html>

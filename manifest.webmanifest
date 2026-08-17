@@ -1,13 +1,29 @@
 {
   "name": "SteadN",
   "short_name": "SteadN",
-  "description": "A homestead almanac that works with no signal.",
+  "description": "A homestead almanac. Planting windows worked out from your zone, a garden you lay out foot by foot, canning times adjusted for your elevation, and a season log that remembers what worked. Runs with no signal.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#242B31",
   "theme_color": "#242B31",
+  "categories": ["lifestyle", "productivity", "food"],
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/icon-192.png",      "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png",      "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg",          "sizes": "any",     "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "screenshots": [
+    { "src": "/shot-garden.png",   "sizes": "412x915", "type": "image/png", "form_factor": "narrow", "label": "Your garden, laid out foot by foot" },
+    { "src": "/shot-today.png",    "sizes": "412x915", "type": "image/png", "form_factor": "narrow", "label": "What needs doing today" },
+    { "src": "/shot-almanac.png",  "sizes": "412x915", "type": "image/png", "form_factor": "narrow", "label": "Planting windows for your zone" }
+  ],
+  "shortcuts": [
+    { "name": "Today",   "url": "/?t=now",     "description": "What needs doing" },
+    { "name": "Garden",  "url": "/?t=garden",  "description": "Your beds" },
+    { "name": "Almanac", "url": "/?t=almanac", "description": "Planting windows" }
   ]
 }
