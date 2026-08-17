@@ -933,6 +933,8 @@
   @media(prefers-reduced-motion:reduce){
     .sp-stem,.sp-leafL,.sp-leafR{animation:none;stroke-dashoffset:0;opacity:1;transform:none}
   }
+  .dbtn.install{border-color:var(--tag);color:var(--tag)}
+  .dbtn.install:hover{background:var(--tag);color:var(--on-tag)}
 
 </style>
 
@@ -7482,6 +7484,95 @@ function stopThinking() {
 }
 
 // ===========================================================================
+// ADD TO HOME SCREEN
+// Chrome and Edge fire beforeinstallprompt and let us trigger the real
+// installer. Safari on iOS offers no such API, so the only honest thing there
+// is to show the person exactly which buttons to press.
+// ===========================================================================
+let deferredInstall = null;
+
+const isStandalone = () =>
+  (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+  || window.navigator.standalone === true;
+
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
+  && !/crios|fxios|edgios/i.test(navigator.userAgent);   // only Safari can install
+
+function installState() {
+  if (isStandalone()) return 'installed';
+  if (deferredInstall) return 'ready';       // we can trigger it ourselves
+  if (isIOS()) return 'ios';                 // we can only give directions
+  return 'unavailable';
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();                      // keep the browser's own banner off
+    deferredInstall = e;
+    if (state.signedIn) render();            // the button can appear now
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstall = null;
+    state.installOpen = false;
+    state.installDone = true;
+    if (state.signedIn) render();
+  });
+}
+
+async function runInstall() {
+  if (!deferredInstall) { state.installOpen = true; return render(); }
+  const e = deferredInstall;
+  deferredInstall = null;
+  try {
+    e.prompt();
+    const res = await e.userChoice;
+    if (res && res.outcome === 'accepted') state.installDone = true;
+    else state.installDismissed = true;      // do not nag
+  } catch (err) {
+    state.installOpen = true;                // fall back to directions
+  }
+  render();
+}
+
+// the small button that lives in the header
+function installButton() {
+  const s = installState();
+  if (s === 'installed' || s === 'unavailable' || state.installDismissed) return '';
+  return `<button class="dbtn install" data-act="install"
+    title="Put SteadN on your home screen so it opens like an app and works with no signal">Install</button>`;
+}
+
+// directions, for iOS and for anything that will not prompt
+function installSheet() {
+  if (!state.installOpen) return '';
+  const ios = isIOS();
+  return `<div class="sheet-bg" data-close="1"></div><div class="sheet">
+    <div class="sheet-head">
+      <div><h3>Put it on your home screen</h3>
+        <div class="sheet-sub">Opens like an app, and works with no signal</div></div>
+      <button class="x" data-close="1">Close</button></div>
+    <div class="sheet-body">
+      ${ios ? `
+        <div class="stepline"><span class="sx">1</span>Tap the <b>Share</b> button at the bottom of Safari, the square with an arrow coming out of it.</div>
+        <div class="stepline"><span class="sx">2</span>Scroll down the list and tap <b>Add to Home Screen</b>.</div>
+        <div class="stepline"><span class="sx">3</span>Tap <b>Add</b> in the top right.</div>
+        <div class="cropnote">Safari only. If you are in Chrome or Firefox on an iPhone, open steadn.com in Safari first, then follow the steps.</div>
+      ` : `
+        <div class="stepline"><span class="sx">1</span>Open your browser menu, the three dots.</div>
+        <div class="stepline"><span class="sx">2</span>Choose <b>Install app</b>, or <b>Add to Home screen</b>.</div>
+        <div class="stepline"><span class="sx">3</span>Confirm.</div>
+        <div class="cropnote">If neither appears, the browser may not support installing. Chrome, Edge and Samsung Internet all do.</div>
+      `}
+      <div class="sheet-eyebrow">Why bother</div>
+      <div class="probtext">Once it is on your home screen the almanac, your beds, the growth stages, the canning times and the whole library work with no signal at all. Only the advisor needs a connection, and it says so when it cannot reach one.</div>
+      <div class="sheet-actions">
+        <button class="btn" data-close="1">Got it</button>
+        <button class="btn-ghost" data-act="installnever">Do not show this again</button>
+      </div>
+    </div></div>`;
+}
+
+// ===========================================================================
 // PERSISTENCE
 // Writes through the artifact storage API, which survives between sessions.
 // Browser localStorage is not available here, so this is the real mechanism.
@@ -7494,7 +7585,7 @@ const SAVE_KEY = 'steadn:v1';
 const PERSIST = ['signedIn','onboarded','tab','putup','place','keeps','chickens','goats','people',
   'planItems','plot','rowOpt','beds','gardenSeason','harvests','pantry',
   'seasons','ratings','trays','starts','done','chores','issues','offPlan',
-  'share','plan','ai','theme','fs','tagSub','printQr','printNotes','vendor','pinned'];
+  'share','plan','ai','theme','fs','tagSub','installDismissed','installDone','printQr','printNotes','vendor','pinned'];
 
 let saveTimer = null, saveGen = 0;
 const hasStore = () => typeof window !== 'undefined' && window.storage
@@ -7614,6 +7705,7 @@ const state = {
   printQr:false, printNotes:true,
   gardenSeason:'spring', starts:{}, offPlan:false,
   theme:'night', fs:1,
+  installOpen:false, installDone:false, installDismissed:false,
   ghOpen:false, trayOpen:false, trayDraft:{cropId:'tomato',cells:24}, trays:[],
   rowOpt:null, optPreview:null,
   saveState:'saved', savedAt:null, saveErr:null,
@@ -7896,6 +7988,7 @@ function mast() {
     <div class="mast-meta">${esc(meta)}</div>
     <div class="dispbar" role="group" aria-label="Display settings">
       <span class="savechip" id="savechip"></span>
+      ${installButton()}
       <button class="dbtn ${state.theme==='daylight'?'on':''}" data-theme="1"
         title="Daylight reads better outdoors. A dark screen loses contrast in sun.">${
         state.theme==='daylight'?'Daylight':'Night'}</button>
@@ -8702,7 +8795,7 @@ function render() {
   const body = {garden:gardenView,now:dashView,almanac:almanacView,putup:putupView,seasons:seasonsView,print:printPlanView,greenhouse:greenhouseView,timeline:timelineView,field:fieldView,neighbors:neighborsView,share:shareView,library:libraryView,supply:supplyView,ask:askView,plan:planView}[state.tab]();
   root.innerHTML = mast()+tabs()+body+
     `<div class="wrap"><div class="footnote">SteadN v0 \u00b7 ${CROPS.length} crops \u00b7 zone ${esc(state.place.zone)} dates computed from frost averages, not looked up. Frost dates are 30 year averages so your microclimate shifts them a week either way. Yield figures are planning estimates. Nothing saves between sessions yet.</div></div>`+
-    segSheet()+(state.openCrop?cropSheet():'')+libSheet()+recipeSheet()+probSheet()+nborSheet()+tagSheet();
+    segSheet()+(state.openCrop?cropSheet():'')+libSheet()+recipeSheet()+probSheet()+nborSheet()+tagSheet()+installSheet();
   window.scrollTo(0,y);
   paintSaveChip();
   // keep the caret in whichever search field is live
@@ -8721,7 +8814,7 @@ root.addEventListener('click', e => {
   const t = e.target.closest('button,a,[data-ackplant],[data-act],[data-add],[data-addplan],[data-askcrop],[data-auth],[data-chatq],[data-close],[data-credits],[data-crop],[data-d],[data-delbed],[data-delhv],[data-delseg],[data-donekey],[data-fam],[data-field],[data-hv],[data-hvstep],[data-libkind],[data-libopen],[data-nbor],[data-nbstep],[data-opentag],[data-pantry],[data-people],[data-pi],[data-pick],[data-pin],[data-plancl],[data-planoff],[data-planon],[data-planqt],[data-plantgap],[data-plantseg],[data-plot],[data-plotstyle],[data-prob],[data-pt],[data-putup],[data-q],[data-rate],[data-rcat],[data-recipe],[data-refill],[data-scope],[data-seg],[data-segstep],[data-sendchat],[data-setplan],[data-step],[data-tab],[data-tagc],[data-tagmode],[data-tagprob],[data-tagsave],[data-tagsub],[data-tagw],[data-toplant],[data-unplantseg],[data-usebreed],[data-usecrop],[data-usefaster],[data-vendor],[data-zip]');
   if (!t) return;
 
-  if (t.dataset.close){state.openSeg=null;state.openCrop=null;state.openLib=null;state.openRecipe=null;state.openProb=null;state.openNbor=null;state.openTag=null;return render();}
+  if (t.dataset.close){state.openSeg=null;state.openCrop=null;state.openLib=null;state.openRecipe=null;state.openProb=null;state.openNbor=null;state.openTag=null;state.installOpen=false;return render();}
   if (t.dataset.libkind){state.libKind=t.dataset.libkind;return render();}
   if (t.dataset.libopen){
     const [k,n,i]=t.dataset.libopen.split('|');
@@ -9026,6 +9119,8 @@ root.addEventListener('click', e => {
       return;
     }
     case 'wipecancel': state.confirmWipe = false; return render();
+    case 'install': return runInstall();
+    case 'installnever': state.installDismissed=true; state.installOpen=false; return render();
     case 'ghtoggle': state.ghOpen=!state.ghOpen; return render();
     case 'optrun': {
       const o = optimiseRows();
