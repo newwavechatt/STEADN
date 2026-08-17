@@ -7761,6 +7761,48 @@ const ftStr=n=>Number.isInteger(n)?`${n} ft`:`${n} ft`;
 // ===========================================================================
 // CLAUDE
 // ===========================================================================
+// The full bed listing is 4,900 characters and most questions need none of
+// it. Send the shape of the place always; send the layout only when asked.
+function profileFor(q) {
+  const s = String(q||'').toLowerCase();
+  if (/\b(bed|beds|row|rows|layout|plan|map|fit)\b/.test(s)) return profile();
+
+  const grown = allSegs().map(x => cropById(x.seg.cropId)).filter(Boolean);
+  const named = grown.filter(c => s.indexOf(c.name.toLowerCase()) >= 0).map(c => c.id);
+  const f = frostDates(state.place.zone, YEAR);
+  const p = [`Location: ${state.place.near||'unspecified'} \u00b7 zone ${state.place.zone}`,
+             `Today: ${TODAY.toDateString()}`];
+  if (f.lf) p.push(`Last spring frost ${fmt(f.lf)}, first fall frost ${fmt(f.ff)}, ${dayDiff(f.ff,f.lf)} day season`);
+  p.push(`Elevation ${elevation()} ft. Feeding ${state.people}.`);
+
+  // one line per crop, not one per section
+  const tot = {};
+  allSegs().forEach(({seg}) => {
+    const c = cropById(seg.cropId); if (!c) return;
+    tot[c.id] = tot[c.id] || { c, ft:0, planted:null, variety:seg.variety||null };
+    tot[c.id].ft += (+seg.ft||0);
+    if (seg.planted && !tot[c.id].planted) tot[c.id].planted = seg.planted;
+  });
+  const keys = Object.keys(tot);
+  if (keys.length) {
+    p.push('Growing this season:');
+    keys.forEach(k => {
+      const t = tot[k];
+      let st = t.planted ? `, planted ${fmt(new Date(t.planted))}` : ', not planted yet';
+      // stage detail only for crops the question actually names
+      if (t.planted && named.indexOf(k) >= 0) {
+        const g = stageOf(t.c, t.planted, t.c.dtm);
+        st = `, planted ${fmt(new Date(t.planted))}, day ${g.days} of ${g.dtm}, should be ${g.stage.n.toLowerCase()}`;
+      }
+      p.push(`  - ${t.variety||t.c.name}, ${t.ft} ft${st}`);
+    });
+  }
+  const h = harvestTotals(), hk = Object.keys(h);
+  if (hk.length) p.push('Harvested so far: ' + hk.map(k => {
+    const c = cropById(k); return `${c?c.name:k} ${h[k].toFixed(0)} lb`; }).join(', '));
+  return p.join('\n');
+}
+
 function profile() {
   const f = frostDates(state.place.zone,YEAR);
   const p=[`Location: ${state.place.near||'unspecified'} \u00b7 ZIP ${state.place.zip||'?'} \u00b7 zone ${state.place.zone}`,
@@ -7815,12 +7857,15 @@ Rules:
 - If asked about animal health, say you are not covering animals yet and that anything urgent goes to a vet.
 - If you need to know something to answer well, say what.`;
 
-async function callClaude(prompt) {
+async function callClaude(prompt, question) {
   const r = await fetch('/api/ask',{method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,
+    body:JSON.stringify({
       messages:[{role:'user',content:prompt}],
-      tools:[{type:'web_search_20250305',name:'web_search'}]})});
+      // Model and web search are decided on the server, because they are cost
+      // decisions. The client only passes along what was actually asked.
+      question: question || ''
+    })});
   const d = await r.json();
   if (!d.content) throw new Error(d.error?d.error.message:'no response');
   return d.content.map(b=>b.type==='text'?b.text:'').filter(Boolean).join('\n').trim();
@@ -7833,7 +7878,7 @@ async function ask(q) {
   state.openSeg=null; state.openCrop=null; render();
   startThinking();
   try { state.answer={q,a:await callClaude(
-`${VOICE}\n\nHOMESTEAD PROFILE\n${profile()}\n\nQuestion: "${q}"\n\nIf weather or forecast changes the answer, look up the real numbers for their area and cite them. Under 160 words unless steps are needed.`)}; }
+`${VOICE}\n\nHOMESTEAD PROFILE\n${profileFor(q)}\n\nQuestion: "${q}"\n\nIf weather or forecast changes the answer, look up the real numbers for their area and cite them. Under 160 words unless steps are needed.`, q)}; }
   catch(e){ state.answer={q,a:'Could not reach the advisor. '+e.message}; }
   state.answerLoading=false; stopThinking(); render();
 }
