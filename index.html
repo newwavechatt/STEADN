@@ -935,6 +935,17 @@
   }
   .dbtn.install{border-color:var(--tag);color:var(--tag)}
   .dbtn.install:hover{background:var(--tag);color:var(--on-tag)}
+  .auth-err{border-left:2px solid var(--twine);background:rgba(240,129,60,.08);
+    padding:9px 12px;margin:12px 0 0;font-size:calc(13px * var(--fs, 1));line-height:1.55;color:var(--paper)}
+  .auth-local{border:1px solid var(--rule);padding:13px 14px;margin-top:18px;
+    font-size:calc(13px * var(--fs, 1));line-height:1.6;color:var(--muted)}
+  .auth-local b{display:block;font-family:var(--display);text-transform:uppercase;
+    letter-spacing:.11em;font-size:calc(12px * var(--fs, 1));color:var(--paper);margin-bottom:5px}
+  .auth-local .btn-ghost{margin-top:11px}
+  .auth-sep{font-family:var(--data);font-size:calc(10px * var(--fs, 1));color:var(--muted);margin:0 7px}
+  .savechip.synced{border-color:var(--tag-dim);color:var(--tag)}
+  .savechip.local{border-color:var(--rule);color:var(--muted);border-style:dashed}
+  .savechip.conflict{border-color:var(--twine);color:var(--twine)}
 
 </style>
 
@@ -7057,32 +7068,8 @@ const SEED_CHAT = {
 // Real build uses Supabase magic links, which is also the right choice for
 // an audience that will not remember a password.
 // ===========================================================================
-function authView() {
-  const s = state.auth;
-  if (s.step === 'email') return `<div class="authwrap">
-    <h1 class="wordmark big">Stead<span>N</span></h1>
-    <div class="authcard">
-      <div class="auth-h">Sign in</div>
-      <p class="auth-p">We send a link to your email. No password to remember and none to lose.</p>
-      <label>Email</label>
-      <input data-auth="email" type="email" autocomplete="email" value="${esc(s.email)}" placeholder="you@example.com">
-      <button class="btn wide" data-act="sendlink" ${/.+@.+\..+/.test(s.email)?'':'disabled'}>Send my link</button>
-      <div class="auth-alt">
-        <button class="linkbtn" data-act="demoin">Skip and look around first</button>
-      </div>
-      <div class="auth-foot">Prototype. This screen collects no password and stores nothing. The real build uses Supabase magic links.</div>
-    </div></div>`;
+// authView now lives in _auth.js, backed by real magic links
 
-  return `<div class="authwrap">
-    <h1 class="wordmark big">Stead<span>N</span></h1>
-    <div class="authcard">
-      <div class="auth-h">Check your email</div>
-      <p class="auth-p">We sent a link to <b>${esc(s.email)}</b>. Open it on this device and you are in.</p>
-      <button class="btn wide" data-act="demoin">Continue</button>
-      <div class="auth-alt"><button class="linkbtn" data-act="backemail">Use a different email</button></div>
-      <div class="auth-foot">In the real build this screen waits for the link. Here it just continues.</div>
-    </div></div>`;
-}
 
 // ===========================================================================
 // SHARE SETTINGS
@@ -7573,6 +7560,189 @@ function installSheet() {
 }
 
 // ===========================================================================
+// SIGN IN AND SYNC
+// Supabase auth is a plain REST API, so this talks to it with fetch rather
+// than pulling in a library. That keeps the app a single file with no CDN,
+// which is the thing that makes it work in a dead zone.
+//
+// The anon key below is meant to be public. It grants nothing on its own:
+// row level security decides what any request can reach. The service role
+// key is the dangerous one and must never appear here.
+// ===========================================================================
+const SUPA = {
+  url:  '',          // https://xxxxxxxx.supabase.co
+  anon: '',          // the anon public key
+};
+const supaReady = () => !!(SUPA.url && SUPA.anon);
+
+const SESSION_KEY = 'steadn:session';
+let session = null;          // { access_token, refresh_token, expires_at, user }
+
+function saveSession(s) {
+  session = s;
+  try {
+    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch (e) {}
+}
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    session = raw ? JSON.parse(raw) : null;
+  } catch (e) { session = null; }
+  return session;
+}
+
+async function supaFetch(path, opts) {
+  const o = opts || {};
+  const headers = Object.assign({
+    'apikey': SUPA.anon,
+    'Content-Type': 'application/json',
+  }, o.headers || {});
+  if (session && session.access_token && !o.noAuth)
+    headers['Authorization'] = 'Bearer ' + session.access_token;
+  const r = await fetch(SUPA.url + path, Object.assign({}, o, { headers }));
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text }; }
+  return { ok: r.ok, status: r.status, data };
+}
+
+// ---- magic link ---------------------------------------------------------
+async function sendMagicLink(email) {
+  const redirect = location.origin + location.pathname;
+  return supaFetch('/auth/v1/otp', {
+    method: 'POST', noAuth: true,
+    body: JSON.stringify({ email, create_user: true,
+      options: { email_redirect_to: redirect } }),
+  });
+}
+
+// the link comes back with the tokens in the URL fragment
+function consumeAuthHash() {
+  if (!location.hash || location.hash.indexOf('access_token') < 0) return false;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const at = p.get('access_token'), rt = p.get('refresh_token');
+  if (!at) return false;
+  saveSession({ access_token: at, refresh_token: rt,
+    expires_at: Date.now() + (parseInt(p.get('expires_in') || '3600', 10) * 1000) });
+  // strip the tokens out of the address bar so they are not left in history
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+
+// If the app is already open in the tab the magic link targets, the browser
+// treats it as a hash change rather than a load and boot never runs again.
+// Catch that case too.
+if (typeof window !== 'undefined') {
+  window.addEventListener('hashchange', () => {
+    if (supaReady() && !session && consumeAuthHash()) location.reload();
+  });
+}
+
+async function refreshSession() {
+  if (!session || !session.refresh_token) return false;
+  const r = await supaFetch('/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST', noAuth: true,
+    body: JSON.stringify({ refresh_token: session.refresh_token }),
+  });
+  if (r.ok && r.data && r.data.access_token) {
+    saveSession({ access_token: r.data.access_token,
+      refresh_token: r.data.refresh_token,
+      expires_at: Date.now() + (r.data.expires_in * 1000),
+      user: r.data.user });
+    return true;
+  }
+  saveSession(null);
+  return false;
+}
+
+async function fetchUser() {
+  const r = await supaFetch('/auth/v1/user');
+  if (r.ok && r.data && r.data.id) {
+    session.user = r.data; saveSession(session);
+    return r.data;
+  }
+  return null;
+}
+
+async function signOut() {
+  try { await supaFetch('/auth/v1/logout', { method: 'POST' }); } catch (e) {}
+  saveSession(null);
+}
+
+// ---- state sync ---------------------------------------------------------
+let cloudRev = 0;
+
+async function pullState() {
+  if (!supaReady() || !session) return null;
+  const r = await supaFetch('/rest/v1/stead_state?select=state,rev', { method: 'GET' });
+  if (r.ok && Array.isArray(r.data) && r.data.length) {
+    cloudRev = r.data[0].rev;
+    return r.data[0].state;
+  }
+  if (r.ok) { cloudRev = 0; return null; }     // no row yet, first sign in
+  return null;
+}
+
+async function pushState(obj) {
+  if (!supaReady() || !session) return { ok: false, reason: 'offline' };
+  const r = await supaFetch('/rest/v1/rpc/save_state', {
+    method: 'POST',
+    body: JSON.stringify({ p_state: obj, p_rev: cloudRev || null,
+      p_device: (navigator.platform || 'device') }),
+  });
+  const row = r.ok && Array.isArray(r.data) ? r.data[0] : null;
+  if (row && row.ok) { cloudRev = row.rev; return { ok: true, rev: row.rev }; }
+  if (row && !row.ok) {                         // another device wrote first
+    cloudRev = row.rev;
+    return { ok: false, reason: 'conflict', theirs: row.state, rev: row.rev };
+  }
+  return { ok: false, reason: 'error', status: r.status, data: r.data };
+}
+
+// ===========================================================================
+// THE SIGN IN SCREEN
+// ===========================================================================
+function authView() {
+  const s = state.auth;
+  const local = !supaReady();
+
+  if (s.step === 'sent') return `<div class="authwrap">
+    <h1 class="wordmark big">Stead<span>N</span></h1>
+    <div class="authcard">
+      <div class="auth-h">Check your email</div>
+      <p class="auth-p">We sent a link to <b>${esc(s.email)}</b>. Open it on this device and you are in. It lasts an hour.</p>
+      ${s.err?`<div class="auth-err">${esc(s.err)}</div>`:''}
+      <div class="auth-alt">
+        <button class="linkbtn" data-act="backemail">Use a different email</button>
+        <span class="auth-sep">or</span>
+        <button class="linkbtn" data-act="resend">Send it again</button>
+      </div>
+      <div class="auth-foot">Nothing arrived? Look in spam. The sender is your Supabase project, not SteadN.</div>
+    </div></div>`;
+
+  return `<div class="authwrap">
+    <h1 class="wordmark big">Stead<span>N</span></h1>
+    <div class="authcard">
+      <div class="auth-h">Sign in</div>
+      <p class="auth-p">We send a link to your email. No password to remember and none to lose.</p>
+      <label>Email</label>
+      <input data-auth="email" type="email" autocomplete="email" inputmode="email"
+        value="${esc(s.email)}" placeholder="you@example.com">
+      ${s.err?`<div class="auth-err">${esc(s.err)}</div>`:''}
+      <button class="btn wide" data-act="sendlink" ${(/.+@.+\..+/.test(s.email) && !s.busy && !local)?'':'disabled'}>${
+        s.busy?'Sending':'Send my link'}</button>
+      ${local?`<div class="auth-local">
+        <b>Sign in is not switched on yet</b>
+        This copy has no Supabase project attached, so accounts and syncing are unavailable. Everything still works, it just stays on this one device.
+        <button class="btn-ghost" data-act="demoin">Use it on this device</button>
+      </div>`:`<div class="auth-alt"><button class="linkbtn" data-act="demoin">Look around without an account</button></div>`}
+      <div class="auth-foot">Signing in keeps your garden on every device you use. Without it, this browser is the only copy.</div>
+    </div></div>`;
+}
+
+// ===========================================================================
 // PERSISTENCE
 // Writes through the artifact storage API, which survives between sessions.
 // Browser localStorage is not available here, so this is the real mechanism.
@@ -7598,21 +7768,46 @@ function snapshot() {
 }
 
 async function saveNow() {
-  if (!hasStore()) { state.saveState = 'nostore'; return; }
   const gen = ++saveGen;
   state.saveState = 'saving'; paintSaveChip();
-  try {
-    await window.storage.set(SAVE_KEY, JSON.stringify(snapshot()));
-    if (gen === saveGen) { state.saveState = 'saved'; state.savedAt = new Date(); }
-  } catch (e) {
-    if (gen === saveGen) { state.saveState = 'error'; state.saveErr = String(e && e.message || e); }
+  const snap = snapshot();
+
+  // Local first, always. It is the offline copy and it must never wait on the
+  // network to be correct.
+  if (hasStore()) {
+    try { await window.storage.set(SAVE_KEY, JSON.stringify(snap)); }
+    catch (e) {
+      if (gen === saveGen) { state.saveState='error'; state.saveErr=String(e&&e.message||e); paintSaveChip(); }
+      return;
+    }
+  }
+
+  // Then the account copy, if there is one and we can reach it.
+  if (supaReady() && session) {
+    const r = await pushState(snap);
+    if (gen !== saveGen) return;
+    if (r.ok) { state.saveState='synced'; state.savedAt=new Date(); state.syncErr=null; }
+    else if (r.reason === 'conflict') {
+      state.saveState='conflict';           // another device wrote first
+      state.conflict = r.theirs;
+    } else {
+      state.saveState='local';              // held here, goes up when it can
+      state.syncErr = r.reason;
+    }
+  } else if (gen === saveGen) {
+    state.saveState = hasStore() ? 'saved' : 'nostore';
+    state.savedAt = new Date();
   }
   paintSaveChip();
 }
 
-// called after every mutation, coalesced so typing does not hammer storage
+// Called after every mutation, coalesced so typing does not hammer storage.
+// A signed in account is reason enough to save even where local storage is
+// unavailable, which is the case in private browsing on some phones.
 function queueSave() {
-  if (!hasStore()) { state.saveState = 'nostore'; return; }
+  const canLocal = hasStore();
+  const canCloud = supaReady() && !!session;
+  if (!canLocal && !canCloud) { state.saveState = 'nostore'; paintSaveChip(); return; }
   state.saveState = 'dirty'; paintSaveChip();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 700);
@@ -7648,13 +7843,31 @@ function paintSaveChip() {
   const s = state.saveState;
   const label = s === 'saving' ? 'Saving' : s === 'dirty' ? 'Unsaved'
     : s === 'error' ? 'Save failed' : s === 'nostore' ? 'Not saving'
-    : state.savedAt ? 'Saved' : 'Saved';
+    : s === 'synced' ? 'Synced' : s === 'conflict' ? 'Two copies'
+    : s === 'local' ? 'This device' : 'Saved';
   el.className = 'savechip ' + (s || 'saved');
   el.textContent = label;
   el.title = s === 'nostore'
     ? 'No storage available here, so this session will not persist.'
-    : s === 'error' ? ('Save failed: ' + (state.saveErr||'')) 
+    : s === 'error' ? ('Save failed: ' + (state.saveErr||''))
+    : s === 'conflict' ? 'Another device saved a different version. Pick which one to keep.'
+    : s === 'local' ? 'Saved on this device. It goes to your account when the connection returns.'
+    : s === 'synced' ? ('Synced to your account ' + (state.savedAt?state.savedAt.toLocaleTimeString():''))
     : state.savedAt ? ('Last saved ' + state.savedAt.toLocaleTimeString()) : '';
+}
+
+// ---- reconciling two copies ----------------------------------------------
+// On sign in there can be a copy here and a copy in the account. Rather than
+// guess, weigh them and take the fuller one, which is almost always right.
+function stateWeight(o) {
+  if (!o) return -1;
+  const segs = (o.beds||[]).reduce((a,b)=>a+((b.segments||[]).length),0);
+  return segs*10 + (o.harvests||[]).length*5 + (o.seasons||[]).length*20
+       + (o.trays||[]).length + (o.onboarded?1:0);
+}
+function adoptState(o) {
+  if (!o) return;
+  PERSIST.forEach(k => { if (o[k] !== undefined) state[k] = o[k]; });
 }
 
 // ===========================================================================
@@ -7692,7 +7905,8 @@ const state = {
       {cropId:'carrot',name:'Carrot',variety:'Bolero',ft:24,lb:37,perFt:1.54,rating:4}]},
   ],
   probQ:'', probG:'all', openProb:null,
-  signedIn:false, auth:{step:'email',email:''},
+  signedIn:false, auth:{step:'email',email:'',err:null,busy:false},
+  account:null, syncState:'off', syncErr:null,
   share:{enabled:false, handle:'mystead',
     scopes:{garden:'summary',harvest:'hidden',animals:'hidden',seasons:'summary',pantry:'hidden',location:'hidden'}},
   openNbor:null, chat:{}, chatDraft:'',
@@ -7989,6 +8203,7 @@ function mast() {
     <div class="dispbar" role="group" aria-label="Display settings">
       <span class="savechip" id="savechip"></span>
       ${installButton()}
+      ${state.account?`<button class="dbtn" data-act="signout" title="Signed in as ${esc(state.account)}">Sign out</button>`:''}
       <button class="dbtn ${state.theme==='daylight'?'on':''}" data-theme="1"
         title="Daylight reads better outdoors. A dark screen loses contrast in sun.">${
         state.theme==='daylight'?'Daylight':'Night'}</button>
@@ -9168,8 +9383,24 @@ root.addEventListener('click', e => {
       state.draft.ack = false;
       return render();
     }
-    case 'sendlink': state.auth.step='sent'; return render();
-    case 'backemail': state.auth.step='email'; return render();
+    case 'sendlink':
+    case 'resend': {
+      if (!supaReady()) return render();
+      state.auth.busy = true; state.auth.err = null; render();
+      sendMagicLink(state.auth.email).then(r => {
+        state.auth.busy = false;
+        if (r.ok) { state.auth.step = 'sent'; state.auth.err = null; }
+        else state.auth.err = (r.data && (r.data.msg || r.data.error_description || r.data.message))
+          || 'Could not send the link. Check the email address.';
+        render();
+      });
+      return;
+    }
+    case 'backemail': state.auth.step='email'; state.auth.err=null; return render();
+    case 'signout': {
+      signOut().then(() => { location.reload(); });
+      return;
+    }
     case 'demoin':
       state.signedIn=true;
       if (!state.ai.periodStart) state.ai.periodStart = shift(TODAY,-244).toISOString();
@@ -9290,10 +9521,36 @@ root.addEventListener('keydown', e => {
 // the empty state flash past.
 // ===========================================================================
 (async function boot() {
+  // local copy first so a returning user sees their garden immediately
   try { await loadSaved(); } catch (e) {}
+
+  if (supaReady()) {
+    // a magic link lands here with the tokens in the fragment
+    const fresh = consumeAuthHash();
+    if (!fresh) loadSession();
+
+    if (session) {
+      // an expired token still refreshes, so a week away does not sign you out
+      if (session.expires_at && Date.now() > session.expires_at - 60000) await refreshSession();
+      if (session) {
+        state.signedIn = true;
+        const u = await fetchUser();
+        if (u) state.account = u.email || null;
+
+        const cloud = await pullState();
+        const here = stateWeight(snapshot());
+        const there = stateWeight(cloud);
+        if (cloud && there >= here) adoptState(cloud);          // account copy wins
+        else if (cloud && here > there) state.pendingPush = true; // this device is ahead
+        state.saveState = 'synced';
+      }
+    }
+  }
+
   if (state.signedIn && !state.ai.periodStart) state.ai.periodStart = shift(TODAY,-244).toISOString();
   if (state.signedIn && !state.planItems) state.planItems = initPlanItems();
   render();
+  if (state.pendingPush) { state.pendingPush = false; queueSave(); }
 })();
 
 })();
