@@ -948,6 +948,15 @@
   .savechip.conflict{border-color:var(--twine);color:var(--twine)}
   .auth-keep{border-left:2px solid var(--tag);padding:8px 0 8px 12px;margin-top:16px;
     font-family:var(--data);font-size:calc(11px * var(--fs, 1));color:var(--tag);line-height:1.6}
+  .btn-google{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+    background:#fff;color:#1f1f1f;border:1px solid #dadce0;padding:12px 16px;
+    font-family:var(--body);font-size:calc(15px * var(--fs, 1));font-weight:500;margin-bottom:4px}
+  .btn-google:hover{background:#f7f8f8;border-color:#c6c9cd}
+  .btn-google svg{flex-shrink:0}
+  .or-line{display:flex;align-items:center;gap:12px;margin:18px 0 14px}
+  .or-line::before,.or-line::after{content:'';flex:1;height:1px;background:var(--rule)}
+  .or-line span{font-family:var(--data);font-size:calc(9.5px * var(--fs, 1));letter-spacing:.09em;
+    text-transform:uppercase;color:var(--muted)}
 
 </style>
 
@@ -7573,7 +7582,8 @@ function installSheet() {
 // ===========================================================================
 const SUPA = {
   url:  'https://jlkjkpaqbgdewwxnxtbe.supabase.co',
-  anon: 'sb_publishable_OFfQN4otZuSr2x77Sacbfg_dFjWV58U',
+  anon: 'PASTE_YOUR_PUBLISHABLE_KEY_HERE',
+  google: false,     // flip to true once the Google provider is set up
 };
 // The placeholder must not count as configured, or the app tries to sign in
 // with a key that was never filled in and fails in a confusing way.
@@ -7611,6 +7621,16 @@ async function supaFetch(path, opts) {
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text }; }
   return { ok: r.ok, status: r.status, data };
+}
+
+// ---- sign in with Google -----------------------------------------------
+// A full page redirect, not a popup. Popups are blocked in installed apps and
+// on plenty of phone browsers, and Google refuses OAuth inside embedded web
+// views anyway. The redirect comes back with tokens in the fragment, which is
+// the same path the magic link already uses.
+function signInWithGoogle() {
+  const back = encodeURIComponent(location.origin + location.pathname);
+  location.href = SUPA.url + '/auth/v1/authorize?provider=google&redirect_to=' + back;
 }
 
 // ---- magic link ---------------------------------------------------------
@@ -7732,6 +7752,18 @@ function authView() {
     <div class="authcard">
       <div class="auth-h">Sign in</div>
       <p class="auth-p">We send a link to your email. No password to remember and none to lose.</p>
+      ${SUPA.google?`
+        <button class="btn-google" data-act="google">
+          <svg viewBox="0 0 18 18" width="17" height="17" aria-hidden="true">
+            <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.17-1.84H9v3.48h4.84a4.14 4.14 0 01-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 009 18z"/>
+            <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 010-3.44V4.95H.96a9 9 0 000 8.1l3.01-2.33z"/>
+            <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 00.96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+          </svg>
+          Continue with Google
+        </button>
+        <div class="or-line"><span>or use your email</span></div>
+      `:''}
       <label>Email</label>
       <input data-auth="email" type="email" autocomplete="email" inputmode="email"
         value="${esc(s.email)}" placeholder="you@example.com">
@@ -9407,6 +9439,7 @@ root.addEventListener('click', e => {
       return;
     }
     case 'backemail': state.auth.step='email'; state.auth.err=null; return render();
+    case 'google': return signInWithGoogle();
     case 'gosignin': {
       // step back to the sign in screen without touching anything saved here
       state.signedIn = false;
