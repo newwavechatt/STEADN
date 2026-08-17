@@ -115,9 +115,7 @@ admin.sql             staff roles, audit and analytics, for later
 
 Be clear eyed about this before you show anyone.
 
-**Storage is per device.** Someone who plans on a laptop and picks on a phone has two unrelated gardens. This is the single most likely thing to make an early user feel the app is broken.
-
-**There is no real sign in.** The magic link screen is a prototype. Anyone who opens steadn.com is "signed in" to whatever is in that browser.
+**Storage is per device until you do step 4.** Someone who plans on a laptop and picks on a phone has two unrelated gardens until accounts are switched on.
 
 **The AI quota is not enforced.** The thermometer is a courtesy display. The server does not check it, so nothing stops someone from asking a thousand questions and spending your money. `api/ask.js` has a crude per-IP limit that stops a runaway loop, and that is all.
 
@@ -127,7 +125,51 @@ All four have the same fix.
 
 ---
 
-## Step 4 — the backend, when you want those four fixed
+## Step 4 — accounts and syncing
+
+This is what makes a garden follow someone from the laptop to the phone.
+
+### 4a. Create the project
+
+1. **supabase.com** &rarr; New project. Any region near you.
+2. **SQL Editor** &rarr; paste `auth.sql` &rarr; **Run**
+3. **Authentication &rarr; Providers &rarr; Email**: turn on **Enable email provider** and **Enable email confirmations**, which is what sends the magic link
+4. **Authentication &rarr; URL Configuration**: set **Site URL** to `https://steadn.com` and add `https://steadn.com` to **Redirect URLs**. The link will not come back to your site without this.
+5. **Project Settings &rarr; API**: copy the **Project URL** and the **anon public** key
+
+### 4b. Put them in the app
+
+Open `index.html` on GitHub, click the pencil, and find this near the top of the script:
+
+```js
+const SUPA = {
+  url:  '',          // https://xxxxxxxx.supabase.co
+  anon: '',          // the anon public key
+};
+```
+
+Fill both in and commit. Vercel redeploys.
+
+**The anon key belongs in the browser.** It grants nothing by itself: the policies in `auth.sql` decide what any request can reach. The **service_role** key is the dangerous one, and it must never appear in this file or anywhere else a browser can see.
+
+### 4c. Check it
+
+1. Open steadn.com. The sign in screen should no longer say "not switched on yet".
+2. Enter your email, click the link when it arrives.
+3. Build a garden.
+4. Open steadn.com **on your phone**, sign in with the same email. Your beds should be there.
+
+The chip in the header tells you where things stand: **Synced** means it reached your account, **This device** means it saved locally and will go up when the connection returns, **Two copies** means another device saved a different version.
+
+### What happens offline
+
+Local always saves first and never waits on the network, so the app is fully usable in a dead zone. The account copy catches up when signal returns.
+
+If two devices edit while one is offline, the second one to reach the server is refused rather than allowed to flatten the other, and the chip shows **Two copies**. That is deliberate: silently losing a season of harvest records would be far worse than asking.
+
+---
+
+## Step 5 — the rest, when you want it
 
 `schema.sql` and `admin.sql` are written for Supabase.
 
@@ -141,10 +183,9 @@ All four have the same fix.
 
 Then, in this order:
 
-1. Swap the auth screen for `supabase.auth.signInWithOtp()`
-2. Replace the storage shim with reads and writes against the tables in `schema.sql`, keeping localStorage as the offline cache and syncing when a connection returns
-3. Record each advisor call in `ai_usage` and refuse in `api/ask.js` when the plan quota is spent
-4. Stripe, with a webhook writing to `subscriptions`
+1. Record each advisor call in `ai_usage` and refuse in `api/ask.js` when the plan quota is spent. Until this exists the thermometer is a courtesy and nothing caps your spend.
+2. Stripe, with a webhook writing to `subscriptions`
+3. Move from the single state blob in `auth.sql` to the normalised tables in `schema.sql`, which is what sharing and analytics need
 
 Before you trust the admin side, run the verification block at the bottom of `admin.sql`. Create a staff row for yourself, then a second ordinary account, and confirm every admin view comes back empty from the ordinary one. If it does not, the policy is not doing what you think.
 
